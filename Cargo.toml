@@ -1,0 +1,6 @@
+[package]
+name = "polytope"
+version = "0.1.0"
+authors = ["Eser Aygün <eser.aygun@gmail.com>"]
+
+[dependencies]
