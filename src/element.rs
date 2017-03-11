@@ -108,16 +108,18 @@ impl<V> Polytope<V> {
         new_vertices.push(tip);
 
         // For the rest of the dimensions, create a pair of each element and linked them to the tip.
+        let mut linkage_offset = 0;
         let mut new_elements = Vec::<Vec<Element>>::new();
         let mut new_elems_this = new_edges;
         let mut new_elems_next = Vec::<Element>::new();
         for elems_this in self.elements.iter() {
+            let next_linkage_offset = new_elems_this.len();
             for e in elems_this.iter() {
                 // Pulled in and pushed out copies.
                 let i = new_elems_this.len();
-                new_elems_this.push(collect!(e.iter().map(|b| b * 2 + 0), usize));
+                new_elems_this.push(collect!(e.iter().map(|b| linkage_offset + b * 2 + 0), usize));
                 let j = new_elems_this.len();
-                new_elems_this.push(collect!(e.iter().map(|b| b * 2 + 1), usize));
+                new_elems_this.push(collect!(e.iter().map(|b| linkage_offset + b * 2 + 1), usize));
 
                 // Linkage elements.
                 new_elems_next.push(collect!(
@@ -125,6 +127,7 @@ impl<V> Polytope<V> {
                 new_elems_next.push(collect!(
                     e.iter().map(|b| b * 2 + 1).chain([j].iter().cloned()), usize));
             }
+            linkage_offset = next_linkage_offset;
             // Reference-safe way of doing
             //   new_elements.push(new_elems_this);
             //   new_elems_this = new_elems_next;
@@ -241,7 +244,5 @@ mod tests {
             Box::new([0, 2, 4]),
             Box::new([1, 3, 5]),
         ]));
-
-        let r = q.extrude(|v| v.promote(-3.0), |v| v.promote(3.0));
     }
 }
