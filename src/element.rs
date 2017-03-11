@@ -17,11 +17,11 @@ pub struct Polytope<V> {
     elements: Box<[Box<[Element]>]>,
 }
 
-impl<V: Default> Polytope<V> {
-    pub fn new() -> Self {
+impl<V> Polytope<V> {
+    pub fn new(dimensionless: V) -> Self {
         Polytope::<V> {
             dimensions: 0,
-            vertices: boxed![V::default()],
+            vertices: boxed![dimensionless],
             elements: boxed![],
         }
     }
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn polytope_new() {
-        let p = Polytope::<MyVertex>::new();
+        let p = Polytope::<MyVertex>::new(Default::default());
         assert_eq!(p.dimensions, 0);
         assert_eq!(p.vertices.len(), 1);
         assert_eq!(p.elements.len(), 0);
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn extrude_point() {
-        let p = Polytope::<MyVertex>::new();
+        let p = Polytope::<MyVertex>::new(Default::default());
         let q = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
         assert_eq!(q.dimensions, 1);
         assert_eq!(q.vertices.len(), 2);
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn extrude_line() {
-        let p = Polytope::<MyVertex>::new();
+        let p = Polytope::<MyVertex>::new(Default::default());
         let p = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
         let q = p.extrude(|v| v.promote(-2.0), |v| v.promote(2.0));
         assert_eq!(q.dimensions, 2);
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn cone_line() {
-        let p = Polytope::<MyVertex>::new();
+        let p = Polytope::<MyVertex>::new(Default::default());
         let p = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
         let q = p.cone(MyVertex { coords: boxed![0.0, 0.0] },
                        |v| v.promote(-2.0), |v| v.promote(2.0));
