@@ -39,8 +39,9 @@ impl<V> Polytope<V> {
     }
 
     fn replicate_vertices<F1, F2>(&self, map_1: F1, map_2: F2, out: &mut Vec<V>)
-            where F1: Fn(&V) -> V,
-                  F2: Fn(&V) -> V {
+        where F1: Fn(&V) -> V,
+              F2: Fn(&V) -> V
+    {
         for v in self.vertices.iter() {
             out.push(map_1(v));
             out.push(map_2(v));
@@ -59,8 +60,9 @@ impl<V> Polytope<V> {
     }
 
     pub fn extrude<F1, F2>(&self, pull_in: F1, push_out: F2) -> Self
-            where F1: Fn(&V) -> V,
-                  F2: Fn(&V) -> V {
+        where F1: Fn(&V) -> V,
+              F2: Fn(&V) -> V
+    {
         // Replicate vertices by pulling them in and pushing them out.
         let mut new_vertices = Vec::<V>::new();
         self.replicate_vertices(pull_in, push_out, &mut new_vertices);
@@ -68,7 +70,7 @@ impl<V> Polytope<V> {
         // Replicate the rest of the elements;
         let mut new_elements = Vec::<Vec<Element>>::new();
         self.replicate_elements(&mut new_elements);
-        new_elements.push(vec![]);  // make room for the new dimension
+        new_elements.push(vec![]); // make room for the new dimension
 
         // Link replicated vertices to each other using edges
         let mut new_edges = Vec::<Element>::new();
@@ -94,8 +96,9 @@ impl<V> Polytope<V> {
     }
 
     pub fn cone<F1, F2>(&self, tip: V, pull_in: F1, push_out: F2) -> Self
-            where F1: Fn(&V) -> V,
-                  F2: Fn(&V) -> V {
+        where F1: Fn(&V) -> V,
+              F2: Fn(&V) -> V
+    {
         // Replicate vertices by pulling them in and pushing them out.
         let mut new_vertices = Vec::<V>::new();
         self.replicate_vertices(pull_in, push_out, &mut new_vertices);
@@ -103,7 +106,7 @@ impl<V> Polytope<V> {
         // Replicate the rest of the elements;
         let mut new_elements = Vec::<Vec<Element>>::new();
         self.replicate_elements(&mut new_elements);
-        new_elements.push(vec![]);  // make room for the new dimension
+        new_elements.push(vec![]); // make room for the new dimension
 
         // Add the tip vertex.
         let tip_index = new_vertices.len();
@@ -148,17 +151,13 @@ mod tests {
 
     impl Default for MyVertex {
         fn default() -> Self {
-            MyVertex {
-                coords: Box::new([]),
-            }
+            MyVertex { coords: Box::new([]) }
         }
     }
 
     impl MyVertex {
         fn promote(&self, h: f64) -> Self {
-            MyVertex {
-                coords: collect!(self.coords.iter().chain([h].iter()).map(|&x| x), f64),
-            }
+            MyVertex { coords: collect!(self.coords.iter().chain([h].iter()).map(|&x| x), f64) }
         }
     }
 
@@ -172,7 +171,8 @@ mod tests {
     #[test]
     fn extrude_point() {
         let p = Polytope::<MyVertex>::new(Default::default());
-        let q = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
+        let q = p.extrude(|v| v.promote(-1.0),
+                          |v| v.promote( 1.0));
         assert_eq!(q.vertices.len(), 2);
         assert!(q.vertices[0].coords == Box::new([-1.0]));
         assert!(q.vertices[1].coords == Box::new([ 1.0]));
@@ -183,8 +183,10 @@ mod tests {
     #[test]
     fn extrude_line() {
         let p = Polytope::<MyVertex>::new(Default::default());
-        let p = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
-        let q = p.extrude(|v| v.promote(-2.0), |v| v.promote(2.0));
+        let p = p.extrude(|v| v.promote(-1.0),
+                          |v| v.promote( 1.0));
+        let q = p.extrude(|v| v.promote(-2.0),
+                          |v| v.promote( 2.0));
         assert_eq!(q.vertices.len(), 4);
         assert!(q.vertices[0].coords == Box::new([-1.0, -2.0]));
         assert!(q.vertices[1].coords == Box::new([-1.0,  2.0]));
@@ -203,9 +205,11 @@ mod tests {
     #[test]
     fn cone_line() {
         let p = Polytope::<MyVertex>::new(Default::default());
-        let p = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
+        let p = p.extrude(|v| v.promote(-1.0),
+                          |v| v.promote(1.0));
         let q = p.cone(MyVertex { coords: boxed![0.0, 0.0] },
-                       |v| v.promote(-2.0), |v| v.promote(2.0));
+                       |v| v.promote(-2.0),
+                       |v| v.promote(2.0));
         assert_eq!(q.vertices.len(), 5);
         assert!(q.vertices[0].coords == Box::new([-1.0, -2.0]));
         assert!(q.vertices[1].coords == Box::new([-1.0,  2.0]));
@@ -230,9 +234,11 @@ mod tests {
     #[test]
     fn extrude_cone_line() {
         let p = Polytope::<MyVertex>::new(Default::default());
-        let p = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
+        let p = p.extrude(|v| v.promote(-1.0),
+                          |v| v.promote( 1.0));
         let p = p.cone(MyVertex { coords: boxed![0.0, 0.0] },
-                       |v| v.promote(-2.0), |v| v.promote(2.0));
+                       |v| v.promote(-2.0),
+                       |v| v.promote( 2.0));
         let q = p.extrude(|v| v.promote(-3.0), |v| v.promote(3.0));
         assert_eq!(q.vertices.len(), 10);
         assert!(q.vertices[0].coords == Box::new([-1.0, -2.0, -3.0]));
