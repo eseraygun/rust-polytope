@@ -1,5 +1,3 @@
-use std::mem;
-
 macro_rules! boxed {
     [$($x:expr),*] => (Box::new([$($x),*]));
 }
@@ -12,7 +10,6 @@ type Element = Box<[usize]>;
 
 #[derive(Debug)]
 pub struct Polytope<V> {
-    dimensions: usize,
     vertices: Box<[V]>,
     elements: Box<[Box<[Element]>]>,
 }
@@ -20,135 +17,123 @@ pub struct Polytope<V> {
 impl<V> Polytope<V> {
     pub fn new(dimensionless: V) -> Self {
         Polytope::<V> {
-            dimensions: 0,
             vertices: boxed![dimensionless],
             elements: boxed![],
         }
     }
-}
 
-impl<V> Polytope<V> {
+    pub fn dimensions(&self) -> usize {
+        self.elements.len()
+    }
+
+    fn from_vecs(vertices: Vec<V>, elements: Vec<Vec<Element>>) -> Self {
+        let mut elements = elements;
+
+        let vertices = vertices.into_boxed_slice();
+        let elements = collect!(elements.drain(..)
+            .map(|mut elems| collect!(elems.drain(..), Element)), Box<[Element]>);
+        Polytope::<V> {
+            vertices: vertices,
+            elements: elements,
+        }
+    }
+
+    fn replicate_vertices<F1, F2>(&self, map_1: F1, map_2: F2, out: &mut Vec<V>)
+            where F1: Fn(&V) -> V,
+                  F2: Fn(&V) -> V {
+        for v in self.vertices.iter() {
+            out.push(map_1(v));
+            out.push(map_2(v));
+        }
+    }
+
+    fn replicate_elements(&self, out: &mut Vec<Vec<Element>>) {
+        for elems in self.elements.iter() {
+            let mut new_elems = Vec::<Element>::new();
+            for e in elems.iter() {
+                new_elems.push(collect!(e.iter().map(|b| b * 2 + 0), usize));
+                new_elems.push(collect!(e.iter().map(|b| b * 2 + 1), usize));
+            }
+            out.push(new_elems);
+        }
+    }
+
     pub fn extrude<F1, F2>(&self, pull_in: F1, push_out: F2) -> Self
             where F1: Fn(&V) -> V,
                   F2: Fn(&V) -> V {
-        // Vertices are a special case: Create a promoted pair of each and linked the pairs.
+        // Replicate vertices by pulling them in and pushing them out.
         let mut new_vertices = Vec::<V>::new();
-        let mut new_edges = Vec::<Element>::new();
-        for v in self.vertices.iter() {
-            // Pulled in and pushed out copies.
-            let i = new_vertices.len();
-            new_vertices.push(pull_in(v));
-            let j = new_vertices.len();
-            new_vertices.push(push_out(v));
+        self.replicate_vertices(pull_in, push_out, &mut new_vertices);
 
-            // Linkage element.
-            new_edges.push(boxed![i, j]);
-        }
-
-        // For the rest of the dimensions, create a pair of each element and linked them via a
-        // higher dimensional element.
-        let mut linkage_offset = 0;
+        // Replicate the rest of the elements;
         let mut new_elements = Vec::<Vec<Element>>::new();
-        let mut new_elems_this = new_edges;
-        let mut new_elems_next = Vec::<Element>::new();
-        for elems_this in self.elements.iter() {
-            let next_linkage_offset = new_elems_this.len();
-            for e in elems_this.iter() {
-                // Pulled in and pushed out copies.
-                let i = new_elems_this.len();
-                new_elems_this.push(collect!(e.iter().map(|b| linkage_offset + b * 2 + 0), usize));
-                let j = new_elems_this.len();
-                new_elems_this.push(collect!(e.iter().map(|b| linkage_offset + b * 2 + 1), usize));
+        self.replicate_elements(&mut new_elements);
+        new_elements.push(vec![]);  // make room for the new dimension
 
-                // Linkage element.
-                new_elems_next.push(collect!(e.iter().chain([i, j].iter()).cloned(), usize));
+        // Link replicated vertices to each other using edges
+        let mut new_edges = Vec::<Element>::new();
+        for i in 0..self.vertices.len() {
+            new_edges.push(boxed![i * 2 + 0, i * 2 + 1]);
+        }
+        let mut offset = new_elements[0].len();
+        new_elements[0].extend(new_edges);
+
+        // Link the rest of the elements using higher-dimensional elements.
+        for (d, elems_this) in self.elements.iter().enumerate() {
+            let mut new_elems_next = Vec::<Element>::new();
+            for (i, e) in elems_this.iter().enumerate() {
+                new_elems_next.push(collect!(e.iter()
+                    .map(|b| offset + b)
+                    .chain([i * 2 + 0, i * 2 + 1].iter().cloned()), usize));
             }
-            linkage_offset = next_linkage_offset;
-            // Reference-safe way of doing
-            //   new_elements.push(new_elems_this);
-            //   new_elems_this = new_elems_next;
-            //   new_elems_next = vec![];
-            new_elements.push(
-                mem::replace(&mut new_elems_this,
-                             mem::replace(&mut new_elems_next, vec![])));
+            offset = new_elements[d + 1].len();
+            new_elements[d + 1].extend(new_elems_next);
         }
-        // Don't forget the final dimension.
-        new_elements.push(new_elems_this);
 
-        let new_vertices = new_vertices.into_boxed_slice();
-        let new_elements = collect!(new_elements.drain(..).map(
-            |mut elements_of_this_dimension|
-            collect!(elements_of_this_dimension.drain(..), Element)
-        ), Box<[Element]>);
-        Polytope::<V> {
-            dimensions: self.dimensions + 1,
-            vertices: new_vertices,
-            elements: new_elements,
-        }
+        Self::from_vecs(new_vertices, new_elements)
     }
 
     pub fn cone<F1, F2>(&self, tip: V, pull_in: F1, push_out: F2) -> Self
             where F1: Fn(&V) -> V,
                   F2: Fn(&V) -> V {
-        // Create a promoted pair of each vertex and linked all of them to the tip.
+        // Replicate vertices by pulling them in and pushing them out.
         let mut new_vertices = Vec::<V>::new();
-        let mut new_edges = Vec::<Element>::new();
-        let tip_index = self.vertices.len() * 2;
-        for v in self.vertices.iter() {
-            // Pulled in and pushed out copies.
-            let i = new_vertices.len();
-            new_vertices.push(pull_in(v));
-            let j = new_vertices.len();
-            new_vertices.push(push_out(v));
+        self.replicate_vertices(pull_in, push_out, &mut new_vertices);
 
-            // Linkage elements.
-            new_edges.push(boxed![i, tip_index]);
-            new_edges.push(boxed![j, tip_index]);
-        }
+        // Replicate the rest of the elements;
+        let mut new_elements = Vec::<Vec<Element>>::new();
+        self.replicate_elements(&mut new_elements);
+        new_elements.push(vec![]);  // make room for the new dimension
+
+        // Add the tip vertex.
+        let tip_index = new_vertices.len();
         new_vertices.push(tip);
 
-        // For the rest of the dimensions, create a pair of each element and linked them to the tip.
-        let mut linkage_offset = 0;
-        let mut new_elements = Vec::<Vec<Element>>::new();
-        let mut new_elems_this = new_edges;
-        let mut new_elems_next = Vec::<Element>::new();
-        for elems_this in self.elements.iter() {
-            let next_linkage_offset = new_elems_this.len();
-            for e in elems_this.iter() {
-                // Pulled in and pushed out copies.
-                let i = new_elems_this.len();
-                new_elems_this.push(collect!(e.iter().map(|b| linkage_offset + b * 2 + 0), usize));
-                let j = new_elems_this.len();
-                new_elems_this.push(collect!(e.iter().map(|b| linkage_offset + b * 2 + 1), usize));
+        // Link replicated vertices to the tip vertex using edges.
+        let mut new_edges = Vec::<Element>::new();
+        for i in 0..self.vertices.len() {
+            new_edges.push(boxed![i * 2 + 0, tip_index]);
+            new_edges.push(boxed![i * 2 + 1, tip_index]);
+        }
+        let mut offset = new_elements[0].len();
+        new_elements[0].extend(new_edges);
 
-                // Linkage elements.
-                new_elems_next.push(collect!(
-                    e.iter().map(|b| b * 2 + 0).chain([i].iter().cloned()), usize));
-                new_elems_next.push(collect!(
-                    e.iter().map(|b| b * 2 + 1).chain([j].iter().cloned()), usize));
+        // Link the rest of the elements using higher-dimensional elements.
+        for (d, elems_this) in self.elements.iter().enumerate() {
+            let mut new_elems_next = Vec::<Element>::new();
+            for (i, e) in elems_this.iter().enumerate() {
+                new_elems_next.push(collect!(e.iter()
+                    .map(|b| offset + b * 2 + 0)
+                    .chain([i * 2 + 0].iter().cloned()), usize));
+                new_elems_next.push(collect!(e.iter()
+                    .map(|b| offset + b * 2 + 1)
+                    .chain([i * 2 + 1].iter().cloned()), usize));
             }
-            linkage_offset = next_linkage_offset;
-            // Reference-safe way of doing
-            //   new_elements.push(new_elems_this);
-            //   new_elems_this = new_elems_next;
-            //   new_elems_next = vec![];
-            new_elements.push(
-                mem::replace(&mut new_elems_this,
-                             mem::replace(&mut new_elems_next, vec![])));
+            offset = new_elements[d + 1].len();
+            new_elements[d + 1].extend(new_elems_next);
         }
-        // Don't forget the final dimension.
-        new_elements.push(new_elems_this);
 
-        let new_vertices = new_vertices.into_boxed_slice();
-        let new_elements = collect!(new_elements.drain(..).map(
-            |mut elements_of_this_dimension|
-            collect!(elements_of_this_dimension.drain(..), Element)
-        ), Box<[Element]>);
-        Polytope::<V> {
-            dimensions: self.dimensions + 1,
-            vertices: new_vertices,
-            elements: new_elements,
-        }
+        Self::from_vecs(new_vertices, new_elements)
     }
 }
 
@@ -180,7 +165,6 @@ mod tests {
     #[test]
     fn polytope_new() {
         let p = Polytope::<MyVertex>::new(Default::default());
-        assert_eq!(p.dimensions, 0);
         assert_eq!(p.vertices.len(), 1);
         assert_eq!(p.elements.len(), 0);
     }
@@ -189,7 +173,6 @@ mod tests {
     fn extrude_point() {
         let p = Polytope::<MyVertex>::new(Default::default());
         let q = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
-        assert_eq!(q.dimensions, 1);
         assert_eq!(q.vertices.len(), 2);
         assert!(q.vertices[0].coords == Box::new([-1.0]));
         assert!(q.vertices[1].coords == Box::new([ 1.0]));
@@ -202,7 +185,6 @@ mod tests {
         let p = Polytope::<MyVertex>::new(Default::default());
         let p = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
         let q = p.extrude(|v| v.promote(-2.0), |v| v.promote(2.0));
-        assert_eq!(q.dimensions, 2);
         assert_eq!(q.vertices.len(), 4);
         assert!(q.vertices[0].coords == Box::new([-1.0, -2.0]));
         assert!(q.vertices[1].coords == Box::new([-1.0,  2.0]));
@@ -210,12 +192,12 @@ mod tests {
         assert!(q.vertices[3].coords == Box::new([ 1.0,  2.0]));
         assert_eq!(q.elements.len(), 2);
         assert!(q.elements[0] == Box::new([
-            Box::new([0, 1]),
-            Box::new([2, 3]),
             Box::new([0, 2]),
             Box::new([1, 3]),
+            Box::new([0, 1]),
+            Box::new([2, 3]),
         ]));
-        assert!(q.elements[1] == Box::new([Box::new([0, 1, 2, 3])]));
+        assert!(q.elements[1] == Box::new([Box::new([2, 3, 0, 1])]));
     }
 
     #[test]
@@ -224,7 +206,6 @@ mod tests {
         let p = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
         let q = p.cone(MyVertex { coords: boxed![0.0, 0.0] },
                        |v| v.promote(-2.0), |v| v.promote(2.0));
-        assert_eq!(q.dimensions, 2);
         assert_eq!(q.vertices.len(), 5);
         assert!(q.vertices[0].coords == Box::new([-1.0, -2.0]));
         assert!(q.vertices[1].coords == Box::new([-1.0,  2.0]));
@@ -233,16 +214,72 @@ mod tests {
         assert!(q.vertices[4].coords == Box::new([ 0.0,  0.0]));
         assert_eq!(q.elements.len(), 2);
         assert!(q.elements[0] == Box::new([
+            Box::new([0, 2]),
+            Box::new([1, 3]),
             Box::new([0, 4]),
             Box::new([1, 4]),
             Box::new([2, 4]),
             Box::new([3, 4]),
-            Box::new([0, 2]),
-            Box::new([1, 3]),
         ]));
         assert!(q.elements[1] == Box::new([
-            Box::new([0, 2, 4]),
-            Box::new([1, 3, 5]),
+            Box::new([2, 4, 0]),
+            Box::new([3, 5, 1]),
+        ]));
+    }
+
+    #[test]
+    fn extrude_cone_line() {
+        let p = Polytope::<MyVertex>::new(Default::default());
+        let p = p.extrude(|v| v.promote(-1.0), |v| v.promote(1.0));
+        let p = p.cone(MyVertex { coords: boxed![0.0, 0.0] },
+                       |v| v.promote(-2.0), |v| v.promote(2.0));
+        let q = p.extrude(|v| v.promote(-3.0), |v| v.promote(3.0));
+        assert_eq!(q.vertices.len(), 10);
+        assert!(q.vertices[0].coords == Box::new([-1.0, -2.0, -3.0]));
+        assert!(q.vertices[1].coords == Box::new([-1.0, -2.0,  3.0]));
+        assert!(q.vertices[2].coords == Box::new([-1.0,  2.0, -3.0]));
+        assert!(q.vertices[3].coords == Box::new([-1.0,  2.0,  3.0]));
+        assert!(q.vertices[4].coords == Box::new([ 1.0, -2.0, -3.0]));
+        assert!(q.vertices[5].coords == Box::new([ 1.0, -2.0,  3.0]));
+        assert!(q.vertices[6].coords == Box::new([ 1.0,  2.0, -3.0]));
+        assert!(q.vertices[7].coords == Box::new([ 1.0,  2.0,  3.0]));
+        assert!(q.vertices[8].coords == Box::new([ 0.0,  0.0, -3.0]));
+        assert!(q.vertices[9].coords == Box::new([ 0.0,  0.0,  3.0]));
+        assert_eq!(q.elements.len(), 3);
+        assert!(q.elements[0] == Box::new([
+            Box::new([0, 4]),
+            Box::new([1, 5]),
+            Box::new([2, 6]),
+            Box::new([3, 7]),
+            Box::new([0, 8]),
+            Box::new([1, 9]),
+            Box::new([2, 8]),
+            Box::new([3, 9]),
+            Box::new([4, 8]),
+            Box::new([5, 9]),
+            Box::new([6, 8]),
+            Box::new([7, 9]),
+            Box::new([0, 1]),
+            Box::new([2, 3]),
+            Box::new([4, 5]),
+            Box::new([6, 7]),
+            Box::new([8, 9]),
+        ]));
+        assert!(q.elements[1] == Box::new([
+            Box::new([4, 8, 0]),
+            Box::new([5, 9, 1]),
+            Box::new([6, 10, 2]),
+            Box::new([7, 11, 3]),
+            Box::new([12, 14, 0, 1]),
+            Box::new([13, 15, 2, 3]),
+            Box::new([12, 16, 4, 5]),
+            Box::new([13, 16, 6, 7]),
+            Box::new([14, 16, 8, 9]),
+            Box::new([15, 16, 10, 11]),
+        ]));
+        assert!(q.elements[2] == Box::new([
+            Box::new([6, 8, 4, 0, 1]),
+            Box::new([7, 9, 5, 2, 3]),
         ]));
     }
 }
