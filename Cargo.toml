@@ -1,9 +1,9 @@
 [package]
 name = "polytope"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Eser Aygün <eser.aygun@gmail.com>"]
 description = "Data structures and methods for constructing polytopes."
-documentation = "https://eseraygun.github.io/rust/polytope/0.1.0/doc/polytope/"
+documentation = "https://eseraygun.github.io/rust/polytope/0.1/doc/polytope/"
 repository = "https://github.com/eseraygun/rust-polytope/"
 readme = "README.md"
 keywords = ["polytope", "geometry", "hypercube", "multidimensional", "multi-dimensional"]
