@@ -1,3 +1,8 @@
+#![deny(missing_docs)]
+
+//! Defines the [`Polytope<V>`](struct.Polytope.html) data structure and related methods for
+//! constructing [polytopes](https://en.wikipedia.org/wiki/Polytope).
+
 macro_rules! boxed {
     [$($x:expr),*] => (Box::new([$($x),*]));
 }
@@ -6,23 +11,92 @@ macro_rules! collect {
     ($x:expr, $y:ty) => ($x.collect::<Vec<$y>>().into_boxed_slice());
 }
 
-type Element = Box<[usize]>;
+/// An element represented as the list of indices of its lower dimensional bounding elements.
+pub type Element = Box<[usize]>;
 
+/// A data structure that represents a [polytope](https://en.wikipedia.org/wiki/Polytope) — a flat
+/// sided multi-dimensional object where the vertices are connected by edges, edges by faces, faces
+/// by cells, etc.
+///
+/// Vertex type is represented by the type parameter `V` and it must be implemented by the client
+/// depending on the problem at hand. For geometrical applications, it would make sense to represent
+/// a vertex as an _n_-dimensional vector, where _n_ is equal to the dimension of the polytope, but
+/// this representation is not forced by the library.
+///
+/// The rest of the elements (edges, faces, cells, etc.) are represented as the list of indices of
+/// the lower dimensional bounding elements. For example, an edge bounded by the 4th and 5th
+/// vertices is represented as `[4, 5]`.
+///
+/// # Examples
+///
+/// The following code creates a 0-dimensional polytope (_i.e._ a point).
+///
+/// ```
+/// use polytope::element::Polytope;
+/// let point = Polytope::<String>::new("".to_string());
+/// assert_eq!(point.dimension(), 0);
+/// assert_eq!(point.vertices.len(), 1);
+/// ```
+///
+/// Given a point, one can create a line, a rectangle and a prism using
+/// [`extrude()`](#method.extrude):
+///
+/// ```
+/// use polytope::element::Polytope;
+/// let pull_in = |v: &String| v.clone() + "-";
+/// let push_out = |v: &String| v.clone() + "+";
+/// let point = Polytope::<String>::new("".to_string());
+/// let line = point.extrude(&pull_in, &push_out);
+/// let rectangle = line.extrude(&pull_in, &push_out);
+/// let prism = rectangle.extrude(&pull_in, &push_out);
+/// assert_eq!(prism.dimension(), 3);
+/// assert_eq!(prism.vertices.len(), 8);
+/// assert_eq!(prism.elements[0].len(), 12);
+/// assert_eq!(prism.elements[1].len(), 6);
+/// assert_eq!(prism.elements[2].len(), 1);
+/// ```
+///
+/// ...or, given a rectangle, one can create double pyramid using [`cone()`](#method.cone):
+///
+/// ```
+/// use polytope::element::Polytope;
+/// let pull_in = |v: &String| v.clone() + "-";
+/// let push_out = |v: &String| v.clone() + "+";
+/// let point = Polytope::<String>::new("".to_string());
+/// let line = point.extrude(&pull_in, &push_out);
+/// let rectangle = line.extrude(&pull_in, &push_out);
+/// let pyramid = rectangle.cone("0000".to_string(), pull_in, push_out);
+/// assert_eq!(pyramid.dimension(), 3);
+/// assert_eq!(pyramid.vertices.len(), 9);
+/// assert_eq!(pyramid.elements[0].len(), 16);
+/// assert_eq!(pyramid.elements[1].len(), 10);
+/// assert_eq!(pyramid.elements[2].len(), 2);
+/// ```
 #[derive(Debug)]
 pub struct Polytope<V> {
-    vertices: Box<[V]>,
-    elements: Box<[Box<[Element]>]>,
+    /// List of vertices.
+    pub vertices: Box<[V]>,
+
+    /// List of element boundaries by dimension.
+    ///
+    /// For example, `elements[0]` is the list of edge boundaries, `elements[1]` is the list of face
+    /// boundaries, etc.
+    pub elements: Box<[Box<[Element]>]>,
 }
 
 impl<V> Polytope<V> {
-    pub fn new(dimensionless: V) -> Self {
+    /// Constructs a 0-dimensional polytope with one vertex.
+    pub fn new(vertex: V) -> Self {
         Polytope::<V> {
-            vertices: boxed![dimensionless],
+            vertices: boxed![vertex],
             elements: boxed![],
         }
     }
 
-    pub fn dimensions(&self) -> usize {
+    /// Returns the dimension of the polytope.
+    ///
+    /// This is equal to the dimension of the highest dimensional element in the list of elements.
+    pub fn dimension(&self) -> usize {
         self.elements.len()
     }
 
@@ -59,6 +133,13 @@ impl<V> Polytope<V> {
         }
     }
 
+    /// Extrudes the polytope into the higher dimension.
+    ///
+    /// Two replicas of the polytope is created by applying the functions `pull_in` and `push_out`
+    /// to the vertices. Then, the replicas are linked via higher dimensional elements (vertices via
+    /// edges, edges via faces, etc.).
+    ///
+    /// This can be used to construct lines out of vertices, rectangle out of lines, etc.
     pub fn extrude<F1, F2>(&self, pull_in: F1, push_out: F2) -> Self
         where F1: Fn(&V) -> V,
               F2: Fn(&V) -> V
@@ -95,7 +176,15 @@ impl<V> Polytope<V> {
         Self::from_vecs(new_vertices, new_elements)
     }
 
-    pub fn cone<F1, F2>(&self, tip: V, pull_in: F1, push_out: F2) -> Self
+    /// Constructs a higher dimensional [double cone](https://en.wikipedia.org/wiki/Cone_(geometry))
+    /// out of the polytope.
+    ///
+    /// Two replicas of the polytope is created by applying the functions `pull_in` and `push_out`
+    /// to the vertices. Then, the replicas are linked to the given apex via higher dimensional
+    /// elements.
+    ///
+    /// This can be used to construct double triangle, double pyramid, double cone, etc.
+    pub fn cone<F1, F2>(&self, apex: V, pull_in: F1, push_out: F2) -> Self
         where F1: Fn(&V) -> V,
               F2: Fn(&V) -> V
     {
@@ -108,15 +197,15 @@ impl<V> Polytope<V> {
         self.replicate_elements(&mut new_elements);
         new_elements.push(vec![]); // make room for the new dimension
 
-        // Add the tip vertex.
-        let tip_index = new_vertices.len();
-        new_vertices.push(tip);
+        // Add the apex.
+        let apex_index = new_vertices.len();
+        new_vertices.push(apex);
 
-        // Link replicated vertices to the tip vertex using edges.
+        // Link replicated vertices to the apex using edges.
         let mut new_edges = Vec::<Element>::new();
         for i in 0..self.vertices.len() {
-            new_edges.push(boxed![i * 2 + 0, tip_index]);
-            new_edges.push(boxed![i * 2 + 1, tip_index]);
+            new_edges.push(boxed![i * 2 + 0, apex_index]);
+            new_edges.push(boxed![i * 2 + 1, apex_index]);
         }
         let mut offset = new_elements[0].len();
         new_elements[0].extend(new_edges);
