@@ -32,17 +32,17 @@ pub type Element = Box<[usize]>;
 /// The following code creates a 0-dimensional polytope (_i.e._ a point).
 ///
 /// ```
-/// use polytope::element::Polytope;
+/// use polytope::Polytope;
 /// let point = Polytope::<String>::new("".to_string());
 /// assert_eq!(point.dimension(), 0);
-/// assert_eq!(point.vertices.len(), 1);
+/// assert_eq!(point.vertices().len(), 1);
 /// ```
 ///
 /// Given a point, one can create a line, a rectangle and a prism using
 /// [`extrude()`](#method.extrude):
 ///
 /// ```
-/// use polytope::element::Polytope;
+/// use polytope::Polytope;
 /// let pull_in = |v: &String| v.clone() + "-";
 /// let push_out = |v: &String| v.clone() + "+";
 /// let point = Polytope::<String>::new("".to_string());
@@ -50,16 +50,16 @@ pub type Element = Box<[usize]>;
 /// let rectangle = line.extrude(&pull_in, &push_out);
 /// let prism = rectangle.extrude(&pull_in, &push_out);
 /// assert_eq!(prism.dimension(), 3);
-/// assert_eq!(prism.vertices.len(), 8);
-/// assert_eq!(prism.elements[0].len(), 12);
-/// assert_eq!(prism.elements[1].len(), 6);
-/// assert_eq!(prism.elements[2].len(), 1);
+/// assert_eq!(prism.vertices().len(), 8);
+/// assert_eq!(prism.elements(0).len(), 12);
+/// assert_eq!(prism.elements(1).len(), 6);
+/// assert_eq!(prism.elements(2).len(), 1);
 /// ```
 ///
 /// ...or, given a rectangle, one can create double pyramid using [`cone()`](#method.cone):
 ///
 /// ```
-/// use polytope::element::Polytope;
+/// use polytope::Polytope;
 /// let pull_in = |v: &String| v.clone() + "-";
 /// let push_out = |v: &String| v.clone() + "+";
 /// let point = Polytope::<String>::new("".to_string());
@@ -67,21 +67,21 @@ pub type Element = Box<[usize]>;
 /// let rectangle = line.extrude(&pull_in, &push_out);
 /// let pyramid = rectangle.cone("0000".to_string(), pull_in, push_out);
 /// assert_eq!(pyramid.dimension(), 3);
-/// assert_eq!(pyramid.vertices.len(), 9);
-/// assert_eq!(pyramid.elements[0].len(), 16);
-/// assert_eq!(pyramid.elements[1].len(), 10);
-/// assert_eq!(pyramid.elements[2].len(), 2);
+/// assert_eq!(pyramid.vertices().len(), 9);
+/// assert_eq!(pyramid.elements(0).len(), 16);
+/// assert_eq!(pyramid.elements(1).len(), 10);
+/// assert_eq!(pyramid.elements(2).len(), 2);
 /// ```
 #[derive(Debug)]
 pub struct Polytope<V> {
     /// List of vertices.
-    pub vertices: Box<[V]>,
+    vertices: Box<[V]>,
 
     /// List of element boundaries by dimension.
     ///
     /// For example, `elements[0]` is the list of edge boundaries, `elements[1]` is the list of face
     /// boundaries, etc.
-    pub elements: Box<[Box<[Element]>]>,
+    elements: Box<[Box<[Element]>]>,
 }
 
 impl<V> Polytope<V> {
@@ -96,8 +96,21 @@ impl<V> Polytope<V> {
     /// Returns the dimension of the polytope.
     ///
     /// This is equal to the dimension of the highest dimensional element in the list of elements.
+    #[inline]
     pub fn dimension(&self) -> usize {
         self.elements.len()
+    }
+
+    /// Lends the vertex list.
+    #[inline]
+    pub fn vertices(&self) -> &[V] {
+        self.vertices.as_ref()
+    }
+
+    /// Lends the element list for the given dimension.
+    #[inline]
+    pub fn elements(&self, dimension: usize) -> &[Element] {
+        self.elements[dimension].as_ref()
     }
 
     fn from_vecs(vertices: Vec<V>, elements: Vec<Vec<Element>>) -> Self {
@@ -231,7 +244,7 @@ impl<V> Polytope<V> {
 
 #[cfg(test)]
 mod tests {
-    use element::*;
+    use ::Polytope;
 
     #[derive(Debug)]
     struct MyVertex {
